@@ -1,0 +1,8 @@
+name: kalam_integration_test
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  protobuf: ^6.0.0

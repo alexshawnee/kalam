@@ -1,0 +1,5 @@
+build/
+protoc-gen-kalam
+**/generated/
+.dart_tool/
+pubspec.lock

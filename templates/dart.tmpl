@@ -1,0 +1,82 @@
+// GENERATED CODE - DO NOT MODIFY
+// Source: {{.FileName}}
+
+import 'dart:typed_data';
+import 'kalam.dart';
+import '{{.ProtoName}}.pb.dart';
+{{range .Services}}
+
+// ── Client ─────────────────────────────────────────────────────────────
+
+class {{.Name}} {
+{{- range .Methods}}
+{{- if .ServerStreaming}}
+
+  static Stream<{{.Output}}> {{.MethodName}}({{.Input}} request) {
+    return Kalam.instance
+        .stream("{{$.ServicePrefix}}{{.Name}}", request.writeToBuffer())
+        .map((bytes) => {{.Output}}.fromBuffer(bytes));
+  }
+{{- else}}
+
+  static Future<{{.Output}}> {{.MethodName}}({{.Input}} request) async {
+    final bytes = await Kalam.instance.call(
+      "{{$.ServicePrefix}}{{.Name}}",
+      request.writeToBuffer(),
+    );
+    return {{.Output}}.fromBuffer(bytes);
+  }
+{{- end}}
+{{- end}}
+}
+
+// ── Server ─────────────────────────────────────────────────────────────
+
+abstract class {{.Name}}Handler {
+{{- range .Methods}}
+{{- if .ServerStreaming}}
+  Stream<{{.Output}}> {{.MethodName}}({{.Input}} request);
+{{- else}}
+  Future<{{.Output}}> {{.MethodName}}({{.Input}} request);
+{{- end}}
+{{- end}}
+}
+
+class {{.Name}}Router extends ServiceRouter {
+  final {{.Name}}Handler handler;
+
+  {{.Name}}Router(this.handler);
+
+  @override
+  Future<void> handle(String method, Uint8List payload, ResponseSink sink) async {
+    final parts = method.split('/');
+    final name = parts.last;
+
+    try {
+      switch (name) {
+{{- range .Methods}}
+{{- if .ServerStreaming}}
+        case '{{.Name}}':
+          final request = {{.Input}}.fromBuffer(payload);
+          await for (final response in handler.{{.MethodName}}(request)) {
+            sink.sendChunk(Uint8List.fromList(response.writeToBuffer()));
+          }
+          sink.sendEnd();
+          return;
+{{- else}}
+        case '{{.Name}}':
+          final request = {{.Input}}.fromBuffer(payload);
+          final response = await handler.{{.MethodName}}(request);
+          sink.sendUnary(Uint8List.fromList(response.writeToBuffer()));
+          return;
+{{- end}}
+{{- end}}
+        default:
+          throw ArgumentError('Unknown method: $method');
+      }
+    } catch (e) {
+      sink.sendError(e.toString());
+    }
+  }
+}
+{{- end}}
