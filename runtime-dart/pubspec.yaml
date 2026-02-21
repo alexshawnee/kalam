@@ -1,0 +1,10 @@
+name: kalam_runtime
+description: Transport-agnostic RPC runtime for Dart
+version: 0.1.0
+homepage: https://github.com/alexshawnee/kalam
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  protobuf: ^3.1.0
