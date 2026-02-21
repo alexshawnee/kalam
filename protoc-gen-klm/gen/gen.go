@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 //go:embed templates/*
@@ -114,7 +115,7 @@ func BuildFileData(f *protogen.File, lang string) FileData {
 
 	typePrefix := ""
 	if lang == "swift" {
-		typePrefix = SwiftTypePrefix(packageName)
+		typePrefix = resolveSwiftPrefix(f.Desc.Options().(*descriptorpb.FileOptions), packageName)
 	}
 
 	for _, svc := range f.Services {
@@ -244,7 +245,13 @@ func KotlinDefault(fd *protogen.Field) string {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-func SwiftTypePrefix(pkg string) string {
+// resolveSwiftPrefix mirrors the logic of protoc --swift_out:
+// 1. If option swift_prefix is explicitly set, use it as-is (even if empty)
+// 2. Otherwise, derive prefix from package name (testdata → Testdata_)
+func resolveSwiftPrefix(opts *descriptorpb.FileOptions, pkg string) string {
+	if opts != nil && opts.SwiftPrefix != nil {
+		return opts.GetSwiftPrefix()
+	}
 	if pkg == "" {
 		return ""
 	}
