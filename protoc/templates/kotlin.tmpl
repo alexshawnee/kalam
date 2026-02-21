@@ -1,0 +1,77 @@
+// GENERATED CODE - DO NOT MODIFY
+// Source: {{.FileName}}
+
+package {{.PackageName}}
+
+import com.kalam.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+{{range .Services}}
+
+// ── Client ─────────────────────────────────────────────────────────────
+
+object {{.Name}} {
+{{- range .Methods}}
+{{- if .ServerStreaming}}
+
+    fun {{.MethodName}}(request: {{.Input}}): Flow<{{.Output}}> {
+        return Kalam.instance
+            .stream("{{$.ServicePrefix}}{{.Name}}", request.toByteArray())
+            .map { bytes -> {{.Output}}.parseFrom(bytes) }
+    }
+{{- else}}
+
+    suspend fun {{.MethodName}}(request: {{.Input}}): {{.Output}} {
+        val bytes = Kalam.instance.call(
+            "{{$.ServicePrefix}}{{.Name}}",
+            request.toByteArray(),
+        )
+        return {{.Output}}.parseFrom(bytes)
+    }
+{{- end}}
+{{- end}}
+}
+
+// ── Server ─────────────────────────────────────────────────────────────
+
+interface {{.Name}}Handler {
+{{- range .Methods}}
+{{- if .ServerStreaming}}
+    fun {{.MethodName}}(request: {{.Input}}): Flow<{{.Output}}>
+{{- else}}
+    suspend fun {{.MethodName}}(request: {{.Input}}): {{.Output}}
+{{- end}}
+{{- end}}
+}
+
+class {{.Name}}Router(private val handler: {{.Name}}Handler) : ServiceRouter {
+    override suspend fun handle(method: String, payload: ByteArray, sink: ResponseSink) {
+        val name = method.substringAfterLast('/')
+
+        try {
+            when (name) {
+{{- range .Methods}}
+{{- if .ServerStreaming}}
+                "{{.Name}}" -> {
+                    val request = {{.Input}}.parseFrom(payload)
+                    handler.{{.MethodName}}(request).collect { response ->
+                        sink.sendChunk(response.toByteArray())
+                    }
+                    sink.sendEnd()
+                }
+{{- else}}
+                "{{.Name}}" -> {
+                    val request = {{.Input}}.parseFrom(payload)
+                    val response = handler.{{.MethodName}}(request)
+                    sink.sendUnary(response.toByteArray())
+                }
+{{- end}}
+{{- end}}
+                else -> throw IllegalArgumentException("Unknown method: $method")
+            }
+        } catch (e: Exception) {
+            sink.sendError(e.toString())
+        }
+    }
+}
+{{- end}}

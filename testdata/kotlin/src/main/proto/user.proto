@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package testdata;
+
+option go_package = "github.com/alexshawnee/kalam/testdata";
+option java_package = "testdata";
+option java_multiple_files = true;
+
+service UserService {
+  rpc GetUser (GetUserRequest) returns (GetUserResponse);
+  rpc ListUsers (ListUsersRequest) returns (stream ListUsersResponse);
+}
+
+message GetUserRequest {
+  int32 id = 1;
+}
+
+message GetUserResponse {
+  string name = 1;
+  string email = 2;
+}
+
+message ListUsersRequest {
+  string query = 1;
+}
+
+message ListUsersResponse {
+  string name = 1;
+  string email = 2;
+}

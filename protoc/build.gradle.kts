@@ -41,6 +41,32 @@ tasks.register<Exec>("generate") {
     )
 }
 
+tasks.register<Exec>("generateKotlin") {
+    description = "Run protoc with kalam plugin for Kotlin"
+    dependsOn("goBuild")
+
+    val protoDir = rootProject.file("testdata")
+    val kotlinOut = rootProject.file("testdata/kotlin/generated")
+
+    inputs.file(protoDir.resolve("user.proto"))
+    inputs.file(goBinary)
+    outputs.dir(kotlinOut)
+
+    doFirst {
+        kotlinOut.deleteRecursively()
+        kotlinOut.mkdirs()
+    }
+
+    environment("PATH", "${goBinary.get().asFile.parentFile.absolutePath}:${System.getenv("PATH")}")
+    commandLine(
+        "protoc",
+        "--kalam_out=${kotlinOut}",
+        "--kalam_opt=lang=kotlin",
+        "--proto_path=${protoDir}",
+        "${protoDir}/user.proto"
+    )
+}
+
 tasks.register<Delete>("goClean") {
     description = "Remove the built Go binary"
     delete(goBinary)

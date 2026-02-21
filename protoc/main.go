@@ -18,11 +18,21 @@ var runtimeFS embed.FS
 
 func main() {
 	protogen.Options{}.Run(func(gen *protogen.Plugin) error {
-		tmpl, err := template.New("dart.tmpl").Funcs(template.FuncMap{
+		// Parse lang parameter (default: dart)
+		lang := "dart"
+		for _, p := range strings.Split(gen.Request.GetParameter(), ",") {
+			p = strings.TrimSpace(p)
+			if strings.HasPrefix(p, "lang=") {
+				lang = strings.TrimPrefix(p, "lang=")
+			}
+		}
+
+		tmplFile := "templates/" + lang + ".tmpl"
+		tmpl, err := template.New(lang + ".tmpl").Funcs(template.FuncMap{
 			"lowerFirst": lowerFirst,
-		}).ParseFS(templateFS, "templates/dart.tmpl")
+		}).ParseFS(templateFS, tmplFile)
 		if err != nil {
-			return fmt.Errorf("parse template: %w", err)
+			return fmt.Errorf("parse template %s: %w", tmplFile, err)
 		}
 
 		for _, f := range gen.Files {
@@ -31,9 +41,17 @@ func main() {
 			}
 
 			for _, svc := range f.Services {
-				data := buildServiceData(f, svc)
+				data := buildServiceData(f, svc, lang)
 
-				fileName := strings.TrimSuffix(f.Desc.Path(), ".proto") + ".klm.dart"
+				var ext string
+				switch lang {
+				case "kotlin":
+					ext = ".klm.kt"
+				default:
+					ext = ".klm.dart"
+				}
+
+				fileName := strings.TrimSuffix(f.Desc.Path(), ".proto") + ext
 				g := gen.NewGeneratedFile(fileName, "")
 
 				if err := tmpl.Execute(g, data); err != nil {
@@ -42,13 +60,15 @@ func main() {
 			}
 		}
 
-		// Copy runtime files
-		transportDart, err := runtimeFS.ReadFile("runtime/kalam.dart")
-		if err != nil {
-			return fmt.Errorf("read runtime/kalam.dart: %w", err)
+		// Copy runtime files for Dart
+		if lang == "dart" {
+			transportDart, err := runtimeFS.ReadFile("runtime/kalam.dart")
+			if err != nil {
+				return fmt.Errorf("read runtime/kalam.dart: %w", err)
+			}
+			rt := gen.NewGeneratedFile("kalam.dart", "")
+			rt.P(string(transportDart))
 		}
-		rt := gen.NewGeneratedFile("kalam.dart", "")
-		rt.P(string(transportDart))
 
 		return nil
 	})
@@ -57,6 +77,7 @@ func main() {
 type ServiceData struct {
 	FileName      string
 	ProtoName     string
+	PackageName   string
 	ServicePrefix string
 	Services      []Service
 }
@@ -67,14 +88,14 @@ type Service struct {
 }
 
 type Method struct {
-	Name            string
-	MethodName      string
-	Input           string
-	Output          string
-	ServerStreaming  bool
+	Name           string
+	MethodName     string
+	Input          string
+	Output         string
+	ServerStreaming bool
 }
 
-func buildServiceData(f *protogen.File, svc *protogen.Service) ServiceData {
+func buildServiceData(f *protogen.File, svc *protogen.Service, lang string) ServiceData {
 	var methods []Method
 	for _, m := range svc.Methods {
 		methods = append(methods, Method{
@@ -86,9 +107,15 @@ func buildServiceData(f *protogen.File, svc *protogen.Service) ServiceData {
 		})
 	}
 
+	packageName := string(f.Desc.Package())
+	if lang == "kotlin" && packageName == "" {
+		packageName = "generated"
+	}
+
 	return ServiceData{
 		FileName:      f.Desc.Path(),
 		ProtoName:     strings.TrimSuffix(f.Desc.Path(), ".proto"),
+		PackageName:   packageName,
 		ServicePrefix: string(svc.Desc.Name()) + "/",
 		Services: []Service{
 			{
