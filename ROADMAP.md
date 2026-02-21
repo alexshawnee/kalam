@@ -9,7 +9,7 @@ Transport-agnostic RPC codegen. gRPC is tied to HTTP/2. Kalam separates codegen 
 ```
 kalam              — codegen (stubs + handlers from .proto, zero transport dependency)
 kalam-wire         — framing protocol (encode/decode, mux, streaming — no I/O)
-kalam-ipc          — local transport (auto-picks: direct in-memory or UDS)
+kalam-ipc          — UDS transport (all platforms, all runtimes)
 kalam-rpc          — HTTP transport (testable with Postman/curl)
 ```
 
@@ -33,14 +33,10 @@ protocol KalamTransport {
 
 **kalam-wire** — the binary framing protocol. Encode/decode frames, request multiplexing, stream lifecycle. No sockets, no I/O — just bytes in, frames out. Testable in isolation, fuzzable.
 
-**kalam-ipc** — local transport using kalam-wire over UDS or direct memory:
+**kalam-ipc** — UDS transport. Single transport for all platforms:
 
 ```swift
-// Flutter plugin — Dart VM can't call native directly
 Kalam.transport = UdsTransport(path: "/tmp/app.sock")
-
-// Native Swift — same binary, no overhead
-Kalam.transport = DirectTransport(bridge: KotlinBridge.shared)
 ```
 
 **kalam-rpc** — HTTP transport. No wire protocol needed, HTTP handles framing:
@@ -51,15 +47,15 @@ Kalam.transport = HttpTransport(url: "http://localhost:8080")
 
 ## Transport Matrix
 
-| Consumer      | Runtime          | Transport       | Module     |
-|---------------|------------------|-----------------|------------|
-| Native Swift  | Same binary      | Direct (memory) | kalam-ipc  |
-| Native C++    | Same binary      | Direct (memory) | kalam-ipc  |
-| Flutter       | Dart VM          | UDS             | kalam-ipc  |
-| React Native  | JSC / Hermes     | UDS             | kalam-ipc  |
-| Electron      | V8               | UDS             | kalam-ipc  |
-| Unity         | Mono / IL2CPP    | UDS             | kalam-ipc  |
-| Postman / curl| —                | HTTP            | kalam-rpc  |
+| Consumer      | Runtime          | Transport | Module     |
+|---------------|------------------|-----------|------------|
+| Native Swift  | Same binary      | UDS       | kalam-ipc  |
+| Native C++    | Same binary      | UDS       | kalam-ipc  |
+| Flutter       | Dart VM          | UDS       | kalam-ipc  |
+| React Native  | JSC / Hermes     | UDS       | kalam-ipc  |
+| Electron      | V8               | UDS       | kalam-ipc  |
+| Unity         | Mono / IL2CPP    | UDS       | kalam-ipc  |
+| Postman / curl| —                | HTTP      | kalam-rpc  |
 
 ## Why Not gRPC?
 
@@ -158,7 +154,7 @@ This makes each piece independently useful and testable.
 - [ ] Extract abstract `Transport` interface from current code
 - [ ] Split into kalam / kalam-wire / kalam-ipc modules
 - [ ] Extract `protoc-gen-kotlinx` from kalam (standalone KMP protobuf codegen)
-- [ ] Direct transport for native integration (Swift, C++)
+- [ ] iOS 13 compatibility for Swift template and runtime
 - [ ] HTTP transport (kalam-rpc)
 - [ ] Bidirectional streaming
 - [ ] TypeScript codegen + runtime
