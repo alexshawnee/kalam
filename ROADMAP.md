@@ -30,15 +30,15 @@ Transport   — UDS for local IPC, HTTP for curl/Postman
 
 ### Codegen: protoc Plugins
 
-| Plugin | What it generates |
-|--------|-------------------|
-| `protoc-gen-kotlinx` | `@Serializable` data classes for KMP (fills the gap `protoc --kotlin_out` leaves) |
-| `protoc-gen-klm-kotlin` | Kotlin RPC stubs + handlers |
-| `protoc-gen-klm-swift` | Swift RPC stubs + handlers |
-| `protoc-gen-klm-dart` | Dart RPC stubs + handlers |
-| `protoc-gen-klm-cpp` | C++ RPC stubs + handlers |
-| `protoc-gen-klm-sharp` | C# RPC stubs + handlers |
-| `protoc-gen-klm-ts` | TypeScript RPC stubs + handlers |
+| Plugin | What it generates | Status |
+|--------|-------------------|--------|
+| `protoc-gen-kotlinx` | `@Serializable` data classes for KMP | Done |
+| `protoc-gen-klm-kotlin` | Kotlin RPC stubs + handlers | Done |
+| `protoc-gen-klm-swift` | Swift RPC stubs + handlers | Done |
+| `protoc-gen-klm-dart` | Dart RPC stubs + handlers | Done |
+| `protoc-gen-klm-cpp` | C++ RPC stubs + handlers | — |
+| `protoc-gen-klm-sharp` | C# RPC stubs + handlers | — |
+| `protoc-gen-klm-ts` | TypeScript RPC stubs + handlers | — |
 
 For Dart and Swift, standard protobuf plugins (`--dart_out`, `--swift_out`) handle DTO generation.
 For Kotlin, `protoc-gen-kotlinx` generates DTOs because `protoc --kotlin_out` produces JVM-only code.
@@ -47,16 +47,14 @@ For Kotlin, `protoc-gen-kotlinx` generates DTOs because `protoc --kotlin_out` pr
 
 Each language gets a published package with the transport implementation:
 
-| Language | Package | Registry |
-|----------|---------|----------|
-| Kotlin (KMP) | `com.kalam:runtime` | Maven (required — multiplatform expect/actual) |
-| Swift | `KalamRuntime` | CocoaPods / SPM |
-| Dart | `kalam_runtime` | pub.dev |
-| C++ | `kalam-runtime` | vcpkg / Conan / header-only |
-| C# | `Kalam.Runtime` | NuGet |
-| TypeScript | `@kalam/runtime` | npm |
-
-Standard delivery is always a package — versioned, updatable, reproducible on CI.
+| Language | Package | Registry | Status |
+|----------|---------|----------|--------|
+| Kotlin (KMP) | `com.kalam:runtime-kotlin` | Maven | Done (mavenLocal) |
+| Swift | `KalamRuntime` | CocoaPods / SPM | Done (file, not packaged) |
+| Dart | `kalam_runtime` | pub.dev | Done (file, not packaged) |
+| C++ | `kalam-runtime` | vcpkg / Conan / header-only | — |
+| C# | `Kalam.Runtime` | NuGet | — |
+| TypeScript | `@kalam/runtime` | npm | — |
 
 ### Special Runtime Packages
 
@@ -88,24 +86,24 @@ protoc --klm-sharp_out=./Assets/Generated  *.proto
 
 ## Transport Matrix
 
-| Consumer      | Runtime          | Transport | Module     |
-|---------------|------------------|-----------|------------|
-| Native Swift  | Same binary      | UDS       | kalam-ipc  |
-| Native C++    | Same binary      | UDS       | kalam-ipc  |
-| Flutter       | Dart VM          | UDS       | kalam-ipc  |
-| React Native  | JSC / Hermes     | UDS       | kalam-ipc  |
-| Electron      | V8               | UDS       | kalam-ipc  |
-| Unity         | Mono / IL2CPP    | UDS       | kalam-ipc  |
-| Postman / curl| —                | HTTP      | kalam-rpc  |
+| Consumer      | Runtime          | Transport |
+|---------------|------------------|-----------|
+| Native Swift  | Same binary      | UDS       |
+| Native C++    | Same binary      | UDS       |
+| Flutter       | Dart VM          | UDS       |
+| React Native  | JSC / Hermes     | UDS       |
+| Electron      | V8               | UDS       |
+| Unity         | Mono / IL2CPP    | UDS       |
+| Postman / curl| —                | HTTP      |
 
-## XPoint SDK Integration (KMP)
+## KMP Integration Example
 
-For our KMP project specifically:
+How Kalam fits into a typical KMP project:
 
 | Platform | Codegen | Runtime | Notes |
 |----------|---------|---------|-------|
-| Android | Kotlin stubs | Maven `com.kalam:runtime` | UDS relay to native server |
-| iOS | Swift stubs in podspec | CocoaPods `KalamRuntime` | UDS to sdk.framework |
+| Android | Kotlin stubs | Maven `com.kalam:runtime-kotlin` | UDS to native server |
+| iOS | Swift stubs in podspec | CocoaPods `KalamRuntime` | UDS to native framework |
 | macOS/Windows | C++ stubs | header alongside .dll/.dylib | UDS to native binary |
 | Flutter | Dart stubs | pub `kalam_runtime` | dart:io sockets directly |
 | React Native | TS stubs | npm `@kalam/runtime` + `react-native-klm-runtime` | native bridge for sockets |
@@ -151,23 +149,19 @@ gRPC bakes HTTP/2 into the generated stubs (Channel, Metadata, StatusCode). Can'
 - Would enable `SharedFlow`-like semantics across language boundaries
 - Trade-off: native dependency per platform vs implementing fan-out ourselves
 
-### Rust Core for kalam-wire
+### Rust Core for Wire Protocol
 - Currently wire protocol (Frame, FrameReader, encode/decode) is reimplemented per language (~120 lines each)
 - With 6+ languages this becomes a maintenance burden
 - Rust core would compile to `libkalam_wire.a` / `.dylib` with C API, zero runtime overhead
 - Each language gets a thin wrapper (~30-40 lines) that maps C callbacks → native async primitives (Future, Flow, AsyncStream, etc.)
 - Binding approach per language: Swift (direct C import), Kotlin/Native (cinterop), C++ (direct `#include`), C# (P/Invoke), Dart (dart:ffi)
-- Caveat: Node.js N-API bindings are painful; Dart goes from single-file runtime to a library with native dependency
 - Trade-off: single source of truth vs added build complexity (cross-compile Rust for each target)
 - Makes sense when language count justifies it; premature with 3 languages
 
-### Shared Memory Transport (kalam-transport-mem)
+### Shared Memory Transport
 - Replace UDS with shared memory (ring buffer + semaphores) for Flutter, React Native, Electron, Unity
 - Eliminates socket file on filesystem — cleaner, no cleanup needed
 - Lower latency than UDS (no kernel round-trip for each message)
-- Approach: thin C library (Boost.Interprocess-style, but C not C++) with FFI bindings per language
-- KMP side (server): needs C interop layer since KMP can't link C++ directly
-- Client side: Flutter/RN plugins wrap the same C library via dart:ffi / JSI
 - Drop-in replacement: swap `UdsTransport` → `MemTransport`, same `KalamTransport` interface
 - Only worth doing when UDS latency becomes a bottleneck or socket file management is painful
 
@@ -178,19 +172,18 @@ gRPC bakes HTTP/2 into the generated stubs (Channel, Metadata, StatusCode). Can'
 
 ## Checklist
 
-- [ ] Extract `protoc-gen-kotlinx` from kalam (standalone KMP protobuf codegen)
-- [ ] Rename codegen plugins to `protoc-gen-klm-{lang}` scheme
-- [ ] Publish Kotlin runtime to Maven (`com.kalam:runtime`)
-- [ ] Publish Swift runtime to CocoaPods/SPM (`KalamRuntime`)
-- [ ] Publish Dart runtime to pub.dev (`kalam_runtime`)
-- [ ] Extract abstract `Transport` interface from current code
-- [ ] Split into kalam / kalam-wire / kalam-ipc modules
+- [x] Extract `protoc-gen-kotlinx` (standalone KMP protobuf codegen)
+- [x] Split codegen into `protoc-gen-klm-{lang}` per-language binaries
+- [x] Kotlin integration test passing with new architecture
+- [ ] Package Swift runtime as CocoaPods pod / SPM package
+- [ ] Package Dart runtime as pub.dev package
+- [ ] Publish Kotlin runtime to Maven Central
 - [ ] iOS 13 compatibility for Swift template and runtime
-- [ ] HTTP transport (kalam-rpc)
+- [ ] HTTP transport for curl/Postman testing
 - [ ] C++ codegen + runtime
 - [ ] C# codegen + runtime (NuGet)
 - [ ] TypeScript codegen + runtime (npm)
 - [ ] `react-native-klm-runtime` native module
 - [ ] Bidirectional streaming
-- [ ] Shared memory transport (eliminate socket files, lower latency)
+- [ ] Shared memory transport
 - [ ] ZeroMQ as optional transport (PUB/SUB fan-out)
