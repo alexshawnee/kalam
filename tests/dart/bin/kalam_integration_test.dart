@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'generated/kalam.dart';
-import 'generated/user.pb.dart';
-import 'generated/user.klm.dart';
+import 'package:kalam_runtime/kalam_runtime.dart';
+import 'package:kalam_integration_test/generated/user.pb.dart';
+import 'package:kalam_integration_test/generated/user.klm.dart';
 
 class MyUserService extends UserServiceHandler {
   @override
