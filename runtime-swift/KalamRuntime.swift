@@ -112,7 +112,7 @@ private func checkError(_ frame: Frame) throws {
 
 // MARK: - Client
 
-final class Kalam: @unchecked Sendable {
+final class Kalam {
     static let shared = Kalam()
     private init() {}
 
@@ -120,9 +120,15 @@ final class Kalam: @unchecked Sendable {
     private var fd: Int32 = -1
     private var nextRequestId: UInt32 = 1
     private let lock = NSLock()
-    private var pendingCalls: [UInt32: CheckedContinuation<Frame, Error>] = [:]
-    private var pendingStreams: [UInt32: AsyncThrowingStream<Frame, Error>.Continuation] = [:]
-    private var readTask: Task<Void, Never>?
+    private let readQueue = DispatchQueue(label: "com.kalam.read", qos: .utility)
+    private var pendingCalls: [UInt32: (Result<Frame, Error>) -> Void] = [:]
+    private var pendingStreams: [UInt32: StreamCallbacks] = [:]
+    private var reading = false
+
+    private struct StreamCallbacks {
+        let onChunk: (Frame) -> Void
+        let onEnd: (Error?) -> Void
+    }
 
     func useSockets(_ path: String) {
         disconnect()
@@ -165,12 +171,13 @@ final class Kalam: @unchecked Sendable {
 
     private func startReadLoop() {
         let fd = self.fd
-        readTask = Task.detached { [weak self] in
+        reading = true
+        readQueue.async { [weak self] in
             let reader = FrameReader()
             let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
             defer { buf.deallocate() }
 
-            while !Task.isCancelled {
+            while self?.reading == true {
                 let n = Darwin.read(fd, buf, 4096)
                 if n <= 0 { break }
                 reader.add(Data(bytes: buf, count: n))
@@ -188,17 +195,17 @@ final class Kalam: @unchecked Sendable {
         lock.lock()
         let id = frame.requestId
 
-        if let continuation = pendingCalls.removeValue(forKey: id) {
+        if let completion = pendingCalls.removeValue(forKey: id) {
             lock.unlock()
-            continuation.resume(returning: frame)
+            completion(.success(frame))
             return
         }
 
-        if let streamCont = pendingStreams[id] {
+        if let callbacks = pendingStreams[id] {
             if frame.frameType == frameTypeStreamEnd {
                 pendingStreams.removeValue(forKey: id)
                 lock.unlock()
-                streamCont.finish()
+                callbacks.onEnd(nil)
             } else if frame.frameType == frameTypeError {
                 pendingStreams.removeValue(forKey: id)
                 lock.unlock()
@@ -206,10 +213,10 @@ final class Kalam: @unchecked Sendable {
                     method: frame.method,
                     message: String(data: frame.payload, encoding: .utf8) ?? ""
                 )
-                streamCont.finish(throwing: err)
+                callbacks.onEnd(err)
             } else {
                 lock.unlock()
-                streamCont.yield(frame)
+                callbacks.onChunk(frame)
             }
             return
         }
@@ -227,8 +234,15 @@ final class Kalam: @unchecked Sendable {
         }
     }
 
-    func call(_ method: String, _ payload: Data) async throws -> Data {
-        try ensureConnected()
+    // MARK: Callback API (iOS 13+)
+
+    func call(_ method: String, _ payload: Data, completion: @escaping (Result<Data, Error>) -> Void) {
+        do {
+            try ensureConnected()
+        } catch {
+            completion(.failure(error))
+            return
+        }
 
         lock.lock()
         let requestId = nextRequestId
@@ -237,18 +251,31 @@ final class Kalam: @unchecked Sendable {
 
         let frameData = encodeFrame(requestId: requestId, frameType: frameTypeUnary, method: method, payload: payload)
 
-        let response: Frame = try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
-            pendingCalls[requestId] = continuation
-            lock.unlock()
-            sendFrame(frameData)
+        lock.lock()
+        pendingCalls[requestId] = { result in
+            switch result {
+            case .success(let frame):
+                do {
+                    try checkError(frame)
+                    completion(.success(frame.payload))
+                } catch {
+                    completion(.failure(error))
+                }
+            case .failure(let error):
+                completion(.failure(error))
+            }
         }
-        try checkError(response)
-        return response.payload
+        lock.unlock()
+        sendFrame(frameData)
     }
 
-    func stream(_ method: String, _ payload: Data) throws -> AsyncThrowingStream<Data, Error> {
-        try ensureConnected()
+    func stream(_ method: String, _ payload: Data, onChunk: @escaping (Data) -> Void, onEnd: @escaping (Error?) -> Void) {
+        do {
+            try ensureConnected()
+        } catch {
+            onEnd(error)
+            return
+        }
 
         lock.lock()
         let requestId = nextRequestId
@@ -257,37 +284,24 @@ final class Kalam: @unchecked Sendable {
 
         let frameData = encodeFrame(requestId: requestId, frameType: frameTypeUnary, method: method, payload: payload)
 
-        let frames = AsyncThrowingStream<Frame, Error> { continuation in
-            lock.lock()
-            pendingStreams[requestId] = continuation
-            lock.unlock()
-            sendFrame(frameData)
-
-            continuation.onTermination = { [weak self] _ in
-                self?.lock.lock()
-                self?.pendingStreams.removeValue(forKey: requestId)
-                self?.lock.unlock()
-            }
-        }
-
-        return AsyncThrowingStream<Data, Error> { continuation in
-            Task {
+        lock.lock()
+        pendingStreams[requestId] = StreamCallbacks(
+            onChunk: { frame in
                 do {
-                    for try await frame in frames {
-                        try checkError(frame)
-                        continuation.yield(frame.payload)
-                    }
-                    continuation.finish()
+                    try checkError(frame)
+                    onChunk(frame.payload)
                 } catch {
-                    continuation.finish(throwing: error)
+                    onEnd(error)
                 }
-            }
-        }
+            },
+            onEnd: onEnd
+        )
+        lock.unlock()
+        sendFrame(frameData)
     }
 
     func disconnect() {
-        readTask?.cancel()
-        readTask = nil
+        reading = false
         if fd >= 0 {
             Darwin.close(fd)
             fd = -1
@@ -299,11 +313,11 @@ final class Kalam: @unchecked Sendable {
         pendingStreams.removeAll()
         lock.unlock()
 
-        for (_, cont) in calls {
-            cont.resume(throwing: KalamException(method: "", message: "Connection lost"))
+        for (_, completion) in calls {
+            completion(.failure(KalamException(method: "", message: "Connection lost")))
         }
-        for (_, cont) in streams {
-            cont.finish()
+        for (_, callbacks) in streams {
+            callbacks.onEnd(KalamException(method: "", message: "Connection lost"))
         }
     }
 }
@@ -311,7 +325,7 @@ final class Kalam: @unchecked Sendable {
 // MARK: - Server
 
 protocol ServiceRouter {
-    func handle(method: String, payload: Data, sink: ResponseSink) async throws
+    func handle(method: String, payload: Data, sink: ResponseSink)
 }
 
 final class ResponseSink {
@@ -349,12 +363,14 @@ final class ResponseSink {
     }
 }
 
-final class KalamServer: @unchecked Sendable {
+final class KalamServer {
     static let shared = KalamServer()
     private init() {}
 
     private var serverFd: Int32 = -1
-    private var serverTask: Task<Void, Never>?
+    private let acceptQueue = DispatchQueue(label: "com.kalam.accept", qos: .utility)
+    private let clientQueue = DispatchQueue(label: "com.kalam.clients", qos: .utility, attributes: .concurrent)
+    private var listening = false
 
     func serve(_ path: String, _ router: ServiceRouter) {
         unlink(path)
@@ -382,21 +398,22 @@ final class KalamServer: @unchecked Sendable {
 
         Darwin.listen(fd, 5)
         serverFd = fd
+        listening = true
 
         print("Kalam server listening on \(path)")
 
-        serverTask = Task.detached { [weak self] in
-            while !Task.isCancelled {
+        acceptQueue.async { [weak self] in
+            while self?.listening == true {
                 let clientFd = Darwin.accept(fd, nil, nil)
                 if clientFd < 0 { break }
-                Task {
-                    await self?.handleClient(clientFd, router)
+                self?.clientQueue.async {
+                    self?.handleClient(clientFd, router)
                 }
             }
         }
     }
 
-    private func handleClient(_ clientFd: Int32, _ router: ServiceRouter) async {
+    private func handleClient(_ clientFd: Int32, _ router: ServiceRouter) {
         let reader = FrameReader()
         let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
         defer {
@@ -412,18 +429,13 @@ final class KalamServer: @unchecked Sendable {
             while let request = reader.tryReadFrame() {
                 reader.compact()
                 let sink = ResponseSink(fd: clientFd, requestId: request.requestId, method: request.method)
-                do {
-                    try await router.handle(method: request.method, payload: request.payload, sink: sink)
-                } catch {
-                    sink.sendError("\(error)")
-                }
+                router.handle(method: request.method, payload: request.payload, sink: sink)
             }
         }
     }
 
     func close() {
-        serverTask?.cancel()
-        serverTask = nil
+        listening = false
         if serverFd >= 0 {
             Darwin.close(serverFd)
             serverFd = -1

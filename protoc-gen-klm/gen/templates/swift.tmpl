@@ -12,26 +12,57 @@ enum {{.Name}} {
 {{- range .Methods}}
 {{- if .ServerStreaming}}
 
-    static func {{.MethodName}}(_ request: {{.Input}}) throws -> AsyncThrowingStream<{{.Output}}, Error> {
-        let raw = try Kalam.shared.stream("{{$svc.Prefix}}{{.Name}}", try request.serializedData())
-        return AsyncThrowingStream<{{.Output}}, Error> { continuation in
-            Task {
-                do {
-                    for try await data in raw {
-                        continuation.yield(try {{.Output}}(serializedBytes: data))
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
+    static func {{.MethodName}}(_ request: {{.Input}}, onChunk: @escaping ({{.Output}}) -> Void, onEnd: @escaping (Error?) -> Void) {
+        do {
+            Kalam.shared.stream("{{$svc.Prefix}}{{.Name}}", try request.serializedData(),
+                onChunk: { data in
+                    do { onChunk(try {{.Output}}(serializedBytes: data)) }
+                    catch { onEnd(error) }
+                },
+                onEnd: onEnd
+            )
+        } catch {
+            onEnd(error)
+        }
+    }
+
+    @available(iOS 15, macOS 12, *)
+    static func {{.MethodName}}(_ request: {{.Input}}) -> AsyncThrowingStream<{{.Output}}, Error> {
+        AsyncThrowingStream { continuation in
+            {{$svc.Name}}.{{.MethodName}}(request,
+                onChunk: { continuation.yield($0) },
+                onEnd: { error in
+                    if let error = error { continuation.finish(throwing: error) }
+                    else { continuation.finish() }
                 }
-            }
+            )
         }
     }
 {{- else}}
 
+    static func {{.MethodName}}(_ request: {{.Input}}, completion: @escaping (Result<{{.Output}}, Error>) -> Void) {
+        do {
+            Kalam.shared.call("{{$svc.Prefix}}{{.Name}}", try request.serializedData()) { result in
+                switch result {
+                case .success(let data):
+                    do { completion(.success(try {{.Output}}(serializedBytes: data))) }
+                    catch { completion(.failure(error)) }
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+        } catch {
+            completion(.failure(error))
+        }
+    }
+
+    @available(iOS 15, macOS 12, *)
     static func {{.MethodName}}(_ request: {{.Input}}) async throws -> {{.Output}} {
-        let data = try await Kalam.shared.call("{{$svc.Prefix}}{{.Name}}", try request.serializedData())
-        return try {{.Output}}(serializedBytes: data)
+        try await withCheckedThrowingContinuation { continuation in
+            {{$svc.Name}}.{{.MethodName}}(request) { result in
+                continuation.resume(with: result)
+            }
+        }
     }
 {{- end}}
 {{- end}}
@@ -42,9 +73,9 @@ enum {{.Name}} {
 protocol {{.Name}}Handler {
 {{- range .Methods}}
 {{- if .ServerStreaming}}
-    func {{.MethodName}}(_ request: {{.Input}}) async throws -> AsyncStream<{{.Output}}>
+    func {{.MethodName}}(_ request: {{.Input}}, onChunk: @escaping ({{.Output}}) -> Void, onEnd: @escaping () -> Void)
 {{- else}}
-    func {{.MethodName}}(_ request: {{.Input}}) async throws -> {{.Output}}
+    func {{.MethodName}}(_ request: {{.Input}}, completion: @escaping (Result<{{.Output}}, Error>) -> Void)
 {{- end}}
 {{- end}}
 }
@@ -56,28 +87,45 @@ class {{.Name}}Router: ServiceRouter {
         self.handler = handler
     }
 
-    func handle(method: String, payload: Data, sink: ResponseSink) async throws {
+    func handle(method: String, payload: Data, sink: ResponseSink) {
         let name = method.split(separator: "/").last.map(String.init) ?? method
 
         switch name {
 {{- range .Methods}}
 {{- if .ServerStreaming}}
         case "{{.Name}}":
-            let request = try {{.Input}}(serializedBytes: payload)
-            let stream = try await handler.{{.MethodName}}(request)
-            for await response in stream {
-                sink.sendChunk(try response.serializedData())
+            do {
+                let request = try {{.Input}}(serializedBytes: payload)
+                handler.{{.MethodName}}(request,
+                    onChunk: { response in
+                        do { sink.sendChunk(try response.serializedData()) }
+                        catch { sink.sendError("\(error)") }
+                    },
+                    onEnd: { sink.sendEnd() }
+                )
+            } catch {
+                sink.sendError("\(error)")
             }
-            sink.sendEnd()
 {{- else}}
         case "{{.Name}}":
-            let request = try {{.Input}}(serializedBytes: payload)
-            let response = try await handler.{{.MethodName}}(request)
-            sink.sendUnary(try response.serializedData())
+            do {
+                let request = try {{.Input}}(serializedBytes: payload)
+                handler.{{.MethodName}}(request) { result in
+                    switch result {
+                    case .success(let response):
+                        do { sink.sendUnary(try response.serializedData()) }
+                        catch { sink.sendError("\(error)") }
+                    case .failure(let error):
+                        sink.sendError("\(error)")
+                    }
+                }
+            } catch {
+                sink.sendError("\(error)")
+            }
 {{- end}}
 {{- end}}
         default:
-            throw KalamException(method: method, message: "Unknown method: \(method)")
+            sink.sendError("Unknown method: \(method)")
         }
     }
 }
