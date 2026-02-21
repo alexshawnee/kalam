@@ -4,45 +4,86 @@
 
 Transport-agnostic RPC codegen. gRPC is tied to HTTP/2. Kalam separates codegen from transport.
 
-## Module Architecture
+## Architecture
+
+Every client on every language needs exactly two runtime dependencies:
+
+1. **Protobuf** — serialization (`toBytes` / `fromBytes`)
+2. **Kalam Runtime** — transport (`send` / `receive`)
+
+Generated stubs glue them together:
 
 ```
-kalam              — codegen (stubs + handlers from .proto, zero transport dependency)
-kalam-wire         — framing protocol (encode/decode, mux, streaming — no I/O)
-kalam-ipc          — UDS transport (all platforms, all runtimes)
-kalam-rpc          — HTTP transport (testable with Postman/curl)
+stub.check(request)
+  → request.toBytes()        // protobuf
+  → transport.call(bytes)    // kalam runtime
+  → Response.fromBytes(data) // protobuf
 ```
 
-### Dependencies
+### Three Layers
 
 ```
-kalam-ipc  → kalam-wire → kalam
-kalam-rpc  → kalam
+Codegen     — protoc plugins that emit stubs per language (build-time only)
+Wire        — framing protocol: encode/decode, mux, streaming (no I/O)
+Transport   — UDS for local IPC, HTTP for curl/Postman
 ```
 
-### What each module does
+### Codegen: protoc Plugins
 
-**kalam** — pure codegen. Takes `.proto`, emits stubs that call an abstract `Transport`:
+| Plugin | What it generates |
+|--------|-------------------|
+| `protoc-gen-kotlinx` | `@Serializable` data classes for KMP (fills the gap `protoc --kotlin_out` leaves) |
+| `protoc-gen-klm-kotlin` | Kotlin RPC stubs + handlers |
+| `protoc-gen-klm-swift` | Swift RPC stubs + handlers |
+| `protoc-gen-klm-dart` | Dart RPC stubs + handlers |
+| `protoc-gen-klm-cpp` | C++ RPC stubs + handlers |
+| `protoc-gen-klm-sharp` | C# RPC stubs + handlers |
+| `protoc-gen-klm-ts` | TypeScript RPC stubs + handlers |
 
-```swift
-protocol KalamTransport {
-    func call(_ method: String, _ payload: Data) async throws -> Data
-    func stream(_ method: String, _ payload: Data) throws -> AsyncThrowingStream<Data, Error>
-}
+For Dart and Swift, standard protobuf plugins (`--dart_out`, `--swift_out`) handle DTO generation.
+For Kotlin, `protoc-gen-kotlinx` generates DTOs because `protoc --kotlin_out` produces JVM-only code.
+
+### Runtime Packages
+
+Each language gets a published package with the transport implementation:
+
+| Language | Package | Registry |
+|----------|---------|----------|
+| Kotlin (KMP) | `com.kalam:runtime` | Maven (required — multiplatform expect/actual) |
+| Swift | `KalamRuntime` | CocoaPods / SPM |
+| Dart | `kalam_runtime` | pub.dev |
+| C++ | `kalam-runtime` | vcpkg / Conan / header-only |
+| C# | `Kalam.Runtime` | NuGet |
+| TypeScript | `@kalam/runtime` | npm |
+
+Standard delivery is always a package — versioned, updatable, reproducible on CI.
+
+### Special Runtime Packages
+
+Some platforms can't access UDS from their standard runtime:
+
+| Package | Why |
+|---------|-----|
+| `react-native-klm-runtime` | JSC/Hermes have no socket API — native module bridges UDS |
+| `electron-klm-runtime` | Browser context has no sockets — node addon bridges UDS |
+
+Dart, C#, C++, Swift, Kotlin — all have native socket access, no bridge needed.
+
+## Adding a New Language
+
+Formula is always the same:
+
+1. Write `protoc-gen-klm-{lang}` — one Go template (~100 lines)
+2. Publish `kalam-{lang}-runtime` — UDS client (~200 lines) as a package
+3. In consumer project: run codegen, add two dependencies (protobuf + kalam runtime)
+
+Example — Unity:
+```bash
+protoc --klm-sharp_out=./Assets/Generated  *.proto
 ```
-
-**kalam-wire** — the binary framing protocol. Encode/decode frames, request multiplexing, stream lifecycle. No sockets, no I/O — just bytes in, frames out. Testable in isolation, fuzzable.
-
-**kalam-ipc** — UDS transport. Single transport for all platforms:
-
-```swift
-Kalam.transport = UdsTransport(path: "/tmp/app.sock")
-```
-
-**kalam-rpc** — HTTP transport. No wire protocol needed, HTTP handles framing:
-
-```swift
-Kalam.transport = HttpTransport(url: "http://localhost:8080")
+```xml
+<PackageReference Include="Google.Protobuf" />
+<PackageReference Include="Kalam.Runtime" />
 ```
 
 ## Transport Matrix
@@ -57,48 +98,34 @@ Kalam.transport = HttpTransport(url: "http://localhost:8080")
 | Unity         | Mono / IL2CPP    | UDS       | kalam-ipc  |
 | Postman / curl| —                | HTTP      | kalam-rpc  |
 
+## XPoint SDK Integration (KMP)
+
+For our KMP project specifically:
+
+| Platform | Codegen | Runtime | Notes |
+|----------|---------|---------|-------|
+| Android | Kotlin stubs | Maven `com.kalam:runtime` | UDS relay to native server |
+| iOS | Swift stubs in podspec | CocoaPods `KalamRuntime` | UDS to sdk.framework |
+| macOS/Windows | C++ stubs | header alongside .dll/.dylib | UDS to native binary |
+| Flutter | Dart stubs | pub `kalam_runtime` | dart:io sockets directly |
+| React Native | TS stubs | npm `@kalam/runtime` + `react-native-klm-runtime` | native bridge for sockets |
+
+### Gradle Plugin
+
+The kalam gradle plugin orchestrates codegen for KMP projects:
+
+```kotlin
+kalam {
+    proto.from("proto")
+    kotlin()    // → protoc-gen-kotlinx + protoc-gen-klm-kotlin
+    swift()     // → protoc --swift_out + protoc-gen-klm-swift
+    dart()      // → protoc --dart_out + protoc-gen-klm-dart
+}
+```
+
 ## Why Not gRPC?
 
 gRPC bakes HTTP/2 into the generated stubs (Channel, Metadata, StatusCode). Can't swap transport without losing half the API. Designed for microservices over network, not for local IPC between runtimes in the same app.
-
-## Codegen Architecture
-
-### Current State
-
-protoc-gen-kalam generates both DTOs and RPC stubs for each language:
-
-| Language | DTO generation | RPC stubs | Serialization runtime |
-|----------|---------------|-----------|----------------------|
-| Dart     | `protoc --dart_out` (standard) | `protoc --kalam_out` | `protobuf` package |
-| Swift    | `protoc --swift_out` (standard) | `protoc --kalam_out` | `SwiftProtobuf` |
-| Kotlin   | `protoc --kalam_out` (built-in) | `protoc --kalam_out` | `kotlinx.serialization.protobuf` |
-
-For Dart and Swift, standard protobuf plugins handle DTO generation. For Kotlin, kalam generates DTOs itself because `protoc --kotlin_out` produces JVM-only code (`protobuf-java` dependency) which doesn't work for Kotlin Multiplatform.
-
-### Target State: Extract protoc-gen-kotlinx
-
-Split Kotlin DTO generation into a standalone protoc plugin:
-
-```
-protoc-gen-kotlinx   — generates @Serializable data classes from .proto (KMP-compatible)
-protoc-gen-kalam     — generates RPC stubs only (all languages)
-```
-
-`protoc-gen-kotlinx` would:
-- Generate `@Serializable` data classes with `@ProtoNumber` annotations
-- Generate enum classes
-- Provide `toByteArray()` / `parseFrom()` via `kotlinx.serialization.protobuf`
-- Be usable independently of kalam (any project needing KMP protobuf)
-- Fill the gap that Google's `protoc --kotlin_out` leaves for multiplatform
-
-The kalam gradle plugin would then invoke it the same way it does for Dart/Swift:
-```kotlin
-"kotlin" -> args.add("--kotlinx_out=${outDir}")
-"swift"  -> args.add("--swift_out=${outDir}")
-"dart"   -> args.add("--dart_out=${outDir}")
-```
-
-This makes each piece independently useful and testable.
 
 ## Open Questions
 
@@ -151,14 +178,19 @@ This makes each piece independently useful and testable.
 
 ## Checklist
 
+- [ ] Extract `protoc-gen-kotlinx` from kalam (standalone KMP protobuf codegen)
+- [ ] Rename codegen plugins to `protoc-gen-klm-{lang}` scheme
+- [ ] Publish Kotlin runtime to Maven (`com.kalam:runtime`)
+- [ ] Publish Swift runtime to CocoaPods/SPM (`KalamRuntime`)
+- [ ] Publish Dart runtime to pub.dev (`kalam_runtime`)
 - [ ] Extract abstract `Transport` interface from current code
 - [ ] Split into kalam / kalam-wire / kalam-ipc modules
-- [ ] Extract `protoc-gen-kotlinx` from kalam (standalone KMP protobuf codegen)
 - [ ] iOS 13 compatibility for Swift template and runtime
 - [ ] HTTP transport (kalam-rpc)
+- [ ] C++ codegen + runtime
+- [ ] C# codegen + runtime (NuGet)
+- [ ] TypeScript codegen + runtime (npm)
+- [ ] `react-native-klm-runtime` native module
 - [ ] Bidirectional streaming
-- [ ] TypeScript codegen + runtime
-- [ ] C# codegen + runtime
-- [ ] C++ runtime
 - [ ] Shared memory transport (eliminate socket files, lower latency)
 - [ ] ZeroMQ as optional transport (PUB/SUB fan-out)

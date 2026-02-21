@@ -6,38 +6,6 @@ package {{.PackageName}}
 import com.kalam.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.protobuf.ProtoNumber
-import kotlinx.serialization.protobuf.ProtoBuf
-import kotlinx.serialization.encodeToByteArray
-import kotlinx.serialization.decodeFromByteArray
-{{- range .Enums}}
-
-// ── Enum: {{.Name}} ───────────────────────────────────────────────────
-
-@Serializable
-enum class {{.Name}} {
-{{- range .Values}}
-    {{.Name}},
-{{- end}}
-}
-{{- end}}
-{{- range .Messages}}
-
-// ── Message: {{.Name}} ────────────────────────────────────────────────
-
-@Serializable
-data class {{.Name}}(
-{{- range .Fields}}
-    @ProtoNumber({{.ProtoNumber}}) val {{.Name}}: {{.KotlinType}} = {{.DefaultValue}},
-{{- end}}
-) {
-    fun toByteArray(): ByteArray = ProtoBuf.encodeToByteArray(this)
-    companion object {
-        fun parseFrom(bytes: ByteArray): {{.Name}} = ProtoBuf.decodeFromByteArray(bytes)
-    }
-}
-{{- end}}
 {{- range .Services}}
 {{- $svc := .}}
 

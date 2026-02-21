@@ -1,10 +1,8 @@
 # Kalam
 
-A `protoc` plugin that generates idiomatic RPC client and server code from `.proto` files with pluggable transports.
+Transport-agnostic RPC codegen from `.proto` files.
 
 ## How It Looks
-
-### Client
 
 ```dart
 // Dart
@@ -19,17 +17,6 @@ let user = try await UserService.getUser(req)
 ```kotlin
 // Kotlin
 val user = UserService.getUser(request)
-```
-
-### Server
-
-```dart
-class MyUserService extends UserServiceHandler {
-  @override
-  Future<GetUserResponse> getUser(GetUserRequest request) async {
-    return GetUserResponse(name: 'User ${request.id}');
-  }
-}
 ```
 
 ## Supported Languages
@@ -47,56 +34,82 @@ class MyUserService extends UserServiceHandler {
 
 ```
 kalam/
-  protoc/                           # Go protoc plugin (codegen)
+  protoc-gen-klm/                     # Go: RPC stubs codegen (all languages)
+    gen/                              # Shared types, helpers, Run()
+      gen.go
+      templates/{kotlin,swift,dart}.tmpl
+    cmd/
+      protoc-gen-klm-kotlin/main.go   # One binary per language
+      protoc-gen-klm-swift/main.go
+      protoc-gen-klm-dart/main.go
+
+  protoc-gen-kotlinx/                 # Go: KMP-compatible protobuf DTOs
     main.go
-    templates/
-      dart.tmpl
-      kotlin.tmpl
-      swift.tmpl
-    runtime/
-      kalam.dart                    # Dart UDS transport
-      kalam.swift                   # Swift UDS transport
-    build.gradle.kts
+    templates/kotlinx.tmpl
 
-  runtime/                          # Kotlin Multiplatform UDS transport
+  runtime-kotlin/                     # KMP UDS transport (Maven)
     src/
-      commonMain/kotlin/com/kalam/  # Frame, Kalam, KalamServer
-      jvmMain/kotlin/com/kalam/    # java.nio UDS
-      appleMain/kotlin/com/kalam/  # POSIX UDS via cinterop
-      mingwMain/kotlin/com/kalam/  # Winsock UDS (TODO)
+      commonMain/kotlin/com/kalam/   # Frame, Kalam, KalamServer
+      jvmMain/                        # java.nio UDS
+      appleMain/                      # POSIX UDS via cinterop
+      mingwMain/                      # Winsock UDS
 
-  testdata/
+  runtime-swift/                      # Swift UDS transport (CocoaPods/SPM)
+  runtime-dart/                       # Dart UDS transport (pub.dev)
+
+  gradle-plugin/                      # Gradle plugin for KMP projects
+  tests/                              # Integration tests
     user.proto
-    dart/                           # Dart integration test
-    kotlin/                         # Kotlin integration test
-    swift/                          # Swift integration test
+    kotlin/                           # Kotlin: unary + streaming + mux
+    swift/
+    dart/
 ```
 
 ## Usage
 
+### Install protoc plugins
+
 ```bash
-# Build the protoc plugin
-./gradlew :protoc:goBuild
+cd protoc-gen-klm && go install ./cmd/...
+cd protoc-gen-kotlinx && go install .
+```
 
-# Generate + run tests
-./gradlew :protoc:generate          # Dart
-./gradlew :protoc:generateKotlin    # Kotlin
-./gradlew :protoc:generateSwift     # Swift
+### Generate code directly
 
-./gradlew :testdata:dart:run        # Dart integration test
-./gradlew :testdata:kotlin:run      # Kotlin integration test
-./gradlew :testdata:swift:run       # Swift integration test
+```bash
+protoc --kotlinx_out=. --klm-kotlin_out=. --proto_path=. service.proto
+protoc --swift_out=. --klm-swift_out=. --proto_path=. service.proto
+protoc --dart_out=. --klm-dart_out=. --proto_path=. service.proto
+```
+
+### Gradle plugin (KMP projects)
+
+```kotlin
+kalam {
+    proto.from("proto")
+    kotlin()   // → protoc-gen-kotlinx + protoc-gen-klm-kotlin
+    swift()    // → protoc --swift_out + protoc-gen-klm-swift
+    dart()     // → protoc --dart_out + protoc-gen-klm-dart
+}
+```
+
+### Run tests
+
+```bash
+./gradlew :tests:kotlin:run
+./gradlew :tests:swift:run
+./gradlew :tests:dart:run
 ```
 
 ## Wire Protocol
 
 ```
-[1 byte version][4 bytes request_id][1 byte frame_type][4 bytes method_len][method][4 bytes payload_len][payload]
+[1B version][4B request_id][1B frame_type][4B method_len][method][4B payload_len][payload]
 ```
 
-- `frame_type 0` — unary request/response
-- `frame_type 1` — stream chunk
-- `frame_type 2` — stream end
-- `frame_type 3` — error
+- `0` — unary request/response
+- `1` — stream chunk
+- `2` — stream end
+- `3` — error
 
 All integers are big-endian. Payload is protobuf-encoded.

@@ -4,8 +4,7 @@ pluginManagement {
 
 rootProject.name = "kalam"
 
-include("protoc-gen-kalam")
-include("runtime")
-include("testdata:dart")
-include("testdata:kotlin")
-include("testdata:swift")
+include("runtime-kotlin")
+include("tests:dart")
+include("tests:kotlin")
+include("tests:swift")

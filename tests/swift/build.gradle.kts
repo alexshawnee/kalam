@@ -1,5 +1,11 @@
 plugins {
     base
+    id("com.kalam")
+}
+
+kalam {
+    proto.from(rootProject.file("tests/user.proto"))
+    swift()
 }
 
 tasks.register<Exec>("resolve") {
@@ -10,7 +16,7 @@ tasks.register<Exec>("resolve") {
 
 tasks.register<Exec>("run") {
     description = "Run Swift integration test"
-    dependsOn("resolve", ":protoc-gen-kalam:generateSwift")
+    dependsOn("resolve", "generateKalamSwift")
     workingDir = projectDir
     commandLine("swift", "run")
 }

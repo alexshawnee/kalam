@@ -3,7 +3,6 @@ package com.kalam.gradle
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import org.gradle.process.ExecOperations
@@ -17,11 +16,6 @@ abstract class GenerateKalamTask @Inject constructor(
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val protoFiles: ConfigurableFileCollection
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    @get:Optional
-    abstract val protocGenKalamBinary: RegularFileProperty
 
     @get:Input
     abstract val language: Property<String>
@@ -64,15 +58,20 @@ abstract class GenerateKalamTask @Inject constructor(
 
         val args = mutableListOf(protoc)
 
-        // Language-specific protobuf message plugins
+        // Each language has its own protoc plugin(s)
         when (lang) {
-            "swift" -> args.add("--swift_out=${outDir}")
-            "dart" -> args.add("--dart_out=${outDir}")
-        }
-
-        args.add("--kalam_out=${outDir}")
-        if (lang != "dart") {
-            args.add("--kalam_opt=lang=${lang}")
+            "kotlin" -> {
+                args.add("--kotlinx_out=${outDir}")
+                args.add("--klm-kotlin_out=${outDir}")
+            }
+            "swift" -> {
+                args.add("--swift_out=${outDir}")
+                args.add("--klm-swift_out=${outDir}")
+            }
+            "dart" -> {
+                args.add("--dart_out=${outDir}")
+                args.add("--klm-dart_out=${outDir}")
+            }
         }
 
         for (dir in protoPathDirs) {
@@ -83,12 +82,8 @@ abstract class GenerateKalamTask @Inject constructor(
             args.add(proto.absolutePath)
         }
 
-        // If explicit binary path provided, prepend its directory to PATH
-        // Otherwise protoc-gen-kalam must be on PATH (e.g. via go install)
+        // Add pub-cache to PATH for Dart protoc plugin
         val extraPaths = mutableListOf<String>()
-        if (protocGenKalamBinary.isPresent) {
-            extraPaths.add(protocGenKalamBinary.get().asFile.parentFile.absolutePath)
-        }
         if (lang == "dart") {
             extraPaths.add("${System.getProperty("user.home")}/.pub-cache/bin")
         }

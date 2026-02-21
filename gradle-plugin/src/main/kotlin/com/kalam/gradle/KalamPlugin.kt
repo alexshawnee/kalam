@@ -32,11 +32,6 @@ class KalamPlugin : Plugin<Project> {
                     task.protocPath.set(extension.protocPath)
                     task.outputDirectory.set(outputDir)
 
-                    if (extension.protocGenKalamPath.isPresent) {
-                        task.protocGenKalamBinary.set(
-                            project.file(extension.protocGenKalamPath.get())
-                        )
-                    }
                 }
 
                 genTasks.add(genTask)

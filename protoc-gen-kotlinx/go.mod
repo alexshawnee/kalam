@@ -1,4 +1,4 @@
-module github.com/alexshawnee/kalam/protoc-gen-kalam
+module github.com/nicekalam/kalam/protoc-gen-kotlinx
 
 go 1.25.0
 

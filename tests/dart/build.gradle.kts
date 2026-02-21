@@ -1,5 +1,11 @@
 plugins {
     base
+    id("com.kalam")
+}
+
+kalam {
+    proto.from(rootProject.file("tests/user.proto"))
+    dart()
 }
 
 tasks.register<Exec>("pubGet") {
@@ -10,7 +16,7 @@ tasks.register<Exec>("pubGet") {
 
 tasks.register<Exec>("run") {
     description = "Run Dart integration test"
-    dependsOn("pubGet", ":protoc-gen-kalam:generate")
+    dependsOn("pubGet", "generateKalamDart")
     workingDir = projectDir
     commandLine("dart", "run", "integration_test.dart")
 }

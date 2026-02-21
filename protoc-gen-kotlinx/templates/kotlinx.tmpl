@@ -1,0 +1,33 @@
+// GENERATED CODE - DO NOT MODIFY
+// Source: {{.FileName}}
+
+package {{.PackageName}}
+
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.protobuf.ProtoNumber
+import kotlinx.serialization.protobuf.ProtoBuf
+import kotlinx.serialization.encodeToByteArray
+import kotlinx.serialization.decodeFromByteArray
+{{- range .Enums}}
+
+@Serializable
+enum class {{.Name}} {
+{{- range .Values}}
+    {{.Name}},
+{{- end}}
+}
+{{- end}}
+{{- range .Messages}}
+
+@Serializable
+data class {{.Name}}(
+{{- range .Fields}}
+    @ProtoNumber({{.ProtoNumber}}) val {{.Name}}: {{.Type}} = {{.DefaultValue}},
+{{- end}}
+) {
+    fun toByteArray(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    companion object {
+        fun parseFrom(bytes: ByteArray): {{.Name}} = ProtoBuf.decodeFromByteArray(bytes)
+    }
+}
+{{- end}}

@@ -1,6 +1,5 @@
 build/
 .gradle/
-protoc-gen-kalam/build/
 **/.build/
 **/generated/
 .dart_tool/

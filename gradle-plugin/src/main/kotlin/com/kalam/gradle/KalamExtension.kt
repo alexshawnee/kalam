@@ -10,9 +10,6 @@ abstract class KalamExtension @Inject constructor(objects: ObjectFactory) {
     /** Proto source files/directories. Usage: proto.from("src/main/proto") */
     val proto: ConfigurableFileCollection = objects.fileCollection()
 
-    /** Path to protoc-gen-kalam binary. Required. */
-    abstract val protocGenKalamPath: Property<String>
-
     /** Path to protoc binary. Defaults to "protoc" (found on PATH). */
     abstract val protocPath: Property<String>
 
