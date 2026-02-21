@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.osx.deployment_target = '10.15'
 
   s.swift_version = '5.7'
-  s.source_files  = 'KalamRuntime.swift'
+  s.source_files  = 'Sources/**/*.swift'
 
   s.dependency 'SwiftProtobuf', '~> 1.25'
 end

@@ -127,13 +127,10 @@ gRPC bakes HTTP/2 into the generated stubs (Channel, Metadata, StatusCode). Can'
 
 ## Open Questions
 
-### Swift: iOS 13 Compatibility
-- Current Swift template and runtime use `async/await`, `AsyncThrowingStream`, `Task`, `CheckedContinuation` — all require iOS 15+
-- Need to support iOS 13+
-- Options:
-  - **Callbacks**: `completion: @escaping (Result<T, Error>) -> Void` — works on iOS 13+
-  - **Combine**: `Future<T, Error>` / `AnyPublisher<T, Error>` — works on iOS 13+
-  - **Both**: callback API as default, async/await wrappers under `@available(iOS 15, *)`
+### Swift: iOS 13 Compatibility — Done
+- Runtime and client stubs: callbacks as base API, async/await wrappers under `@available(iOS 15, macOS 12, *)`
+- Server handler protocol: callbacks only for now
+- TODO: add async/await overloads for server handler protocol (for pure-Swift server use case)
 
 ### C++ Runtime
 - C++17 (callbacks) vs C++20 (coroutines)?
@@ -178,7 +175,7 @@ gRPC bakes HTTP/2 into the generated stubs (Channel, Metadata, StatusCode). Can'
 - [ ] Package Swift runtime as CocoaPods pod / SPM package
 - [ ] Package Dart runtime as pub.dev package
 - [ ] Publish Kotlin runtime to Maven Central
-- [ ] iOS 13 compatibility for Swift template and runtime
+- [x] iOS 13 compatibility for Swift template and runtime
 - [ ] HTTP transport for curl/Postman testing
 - [ ] C++ codegen + runtime
 - [ ] C# codegen + runtime (NuGet)

@@ -1,25 +1,24 @@
 import Foundation
+import KalamRuntime
 
 class MyUserService: UserServiceHandler {
-    func getUser(_ request: Testdata_GetUserRequest) async throws -> Testdata_GetUserResponse {
+    func getUser(_ request: Testdata_GetUserRequest, completion: @escaping (Result<Testdata_GetUserResponse, Error>) -> Void) {
         print("  server <- GetUser(id: \(request.id))")
         var response = Testdata_GetUserResponse()
         response.name = "User \(request.id)"
         response.email = "user\(request.id)@test.com"
-        return response
+        completion(.success(response))
     }
 
-    func listUsers(_ request: Testdata_ListUsersRequest) async throws -> AsyncStream<Testdata_ListUsersResponse> {
+    func listUsers(_ request: Testdata_ListUsersRequest, onChunk: @escaping (Testdata_ListUsersResponse) -> Void, onEnd: @escaping () -> Void) {
         print("  server <- ListUsers(query: \(request.query))")
-        return AsyncStream { continuation in
-            for i in 1...3 {
-                var response = Testdata_ListUsersResponse()
-                response.name = "User \(i)"
-                response.email = "user\(i)@test.com"
-                continuation.yield(response)
-            }
-            continuation.finish()
+        for i in 1...3 {
+            var response = Testdata_ListUsersResponse()
+            response.name = "User \(i)"
+            response.email = "user\(i)@test.com"
+            onChunk(response)
         }
+        onEnd()
     }
 }
 
@@ -44,7 +43,7 @@ print("-> ListUsers(query: \"all\")")
 var listReq = Testdata_ListUsersRequest()
 listReq.query = "all"
 var users: [Testdata_ListUsersResponse] = []
-let stream = try UserService.listUsers(listReq)
+let stream = UserService.listUsers(listReq)
 for try await user in stream {
     print("<- name: \(user.name), email: \(user.email)")
     users.append(user)
@@ -78,13 +77,17 @@ assert(results[3]!.name == "User 3")
 
 // Test error handling
 print("-> Calling unknown method...")
-do {
-    _ = try await Kalam.shared.call("UserService/NonExistent", Data())
-    fatalError("Should have thrown")
-} catch let e as KalamException {
-    print("<- Error caught: \(e)")
-    assert(e.message.contains("Unknown method"))
+let errorSem = DispatchSemaphore(value: 0)
+var caughtError: KalamException?
+Kalam.shared.call("UserService/NonExistent", Data()) { result in
+    if case .failure(let error) = result {
+        caughtError = error as? KalamException
+    }
+    errorSem.signal()
 }
+errorSem.wait()
+print("<- Error caught: \(caughtError!)")
+assert(caughtError!.message.contains("Unknown method"))
 
 print("SUCCESS")
 

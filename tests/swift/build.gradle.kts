@@ -5,7 +5,9 @@ plugins {
 
 kalam {
     proto.from(rootProject.file("tests/user.proto"))
-    swift()
+    swift {
+        outputDir = "Sources/Generated"
+    }
 }
 
 tasks.register<Exec>("resolve") {

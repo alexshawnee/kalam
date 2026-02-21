@@ -97,11 +97,11 @@ private extension Data {
 
 // MARK: - Exception
 
-struct KalamException: Error, CustomStringConvertible {
-    let method: String
-    let message: String
+public struct KalamException: Error, CustomStringConvertible {
+    public let method: String
+    public let message: String
 
-    var description: String { "KalamException(\(method)): \(message)" }
+    public var description: String { "KalamException(\(method)): \(message)" }
 }
 
 private func checkError(_ frame: Frame) throws {
@@ -112,8 +112,8 @@ private func checkError(_ frame: Frame) throws {
 
 // MARK: - Client
 
-final class Kalam {
-    static let shared = Kalam()
+public final class Kalam {
+    public static let shared = Kalam()
     private init() {}
 
     private var socketPath: String?
@@ -130,7 +130,7 @@ final class Kalam {
         let onEnd: (Error?) -> Void
     }
 
-    func useSockets(_ path: String) {
+    public func useSockets(_ path: String) {
         disconnect()
         socketPath = path
     }
@@ -236,7 +236,7 @@ final class Kalam {
 
     // MARK: Callback API (iOS 13+)
 
-    func call(_ method: String, _ payload: Data, completion: @escaping (Result<Data, Error>) -> Void) {
+    public func call(_ method: String, _ payload: Data, completion: @escaping (Result<Data, Error>) -> Void) {
         do {
             try ensureConnected()
         } catch {
@@ -269,7 +269,7 @@ final class Kalam {
         sendFrame(frameData)
     }
 
-    func stream(_ method: String, _ payload: Data, onChunk: @escaping (Data) -> Void, onEnd: @escaping (Error?) -> Void) {
+    public func stream(_ method: String, _ payload: Data, onChunk: @escaping (Data) -> Void, onEnd: @escaping (Error?) -> Void) {
         do {
             try ensureConnected()
         } catch {
@@ -300,7 +300,7 @@ final class Kalam {
         sendFrame(frameData)
     }
 
-    func disconnect() {
+    public func disconnect() {
         reading = false
         if fd >= 0 {
             Darwin.close(fd)
@@ -324,34 +324,34 @@ final class Kalam {
 
 // MARK: - Server
 
-protocol ServiceRouter {
+public protocol ServiceRouter {
     func handle(method: String, payload: Data, sink: ResponseSink)
 }
 
-final class ResponseSink {
+public final class ResponseSink {
     private let fd: Int32
     private let requestId: UInt32
     private let method: String
 
-    init(fd: Int32, requestId: UInt32, method: String) {
+    public init(fd: Int32, requestId: UInt32, method: String) {
         self.fd = fd
         self.requestId = requestId
         self.method = method
     }
 
-    func sendUnary(_ payload: Data) {
+    public func sendUnary(_ payload: Data) {
         send(frameType: frameTypeUnary, payload: payload)
     }
 
-    func sendChunk(_ payload: Data) {
+    public func sendChunk(_ payload: Data) {
         send(frameType: frameTypeStreamChunk, payload: payload)
     }
 
-    func sendEnd() {
+    public func sendEnd() {
         send(frameType: frameTypeStreamEnd, payload: Data())
     }
 
-    func sendError(_ message: String) {
+    public func sendError(_ message: String) {
         send(frameType: frameTypeError, payload: Data(message.utf8))
     }
 
@@ -363,8 +363,8 @@ final class ResponseSink {
     }
 }
 
-final class KalamServer {
-    static let shared = KalamServer()
+public final class KalamServer {
+    public static let shared = KalamServer()
     private init() {}
 
     private var serverFd: Int32 = -1
@@ -372,7 +372,7 @@ final class KalamServer {
     private let clientQueue = DispatchQueue(label: "com.kalam.clients", qos: .utility, attributes: .concurrent)
     private var listening = false
 
-    func serve(_ path: String, _ router: ServiceRouter) {
+    public func serve(_ path: String, _ router: ServiceRouter) {
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -434,7 +434,7 @@ final class KalamServer {
         }
     }
 
-    func close() {
+    public func close() {
         listening = false
         if serverFd >= 0 {
             Darwin.close(serverFd)

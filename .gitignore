@@ -4,6 +4,7 @@ build/
 **/generated/
 .dart_tool/
 pubspec.lock
+Package.resolved
 .idea/
 *.iml
 .kotlin/

@@ -5,13 +5,13 @@ let package = Package(
     name: "KalamIntegrationTest",
     platforms: [.macOS(.v13)],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0"),
+        .package(path: "../../runtime-swift"),
     ],
     targets: [
         .executableTarget(
             name: "IntegrationTest",
             dependencies: [
-                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+                .product(name: "KalamRuntime", package: "runtime-swift"),
             ],
             path: "Sources"
         ),
