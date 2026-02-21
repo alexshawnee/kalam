@@ -1,4 +1,4 @@
-module github.com/alexshawnee/kalam
+module github.com/alexshawnee/kalam/protoc-gen-kalam
 
 go 1.25.0
 

@@ -6,9 +6,42 @@ package {{.PackageName}}
 import com.kalam.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-{{range .Services}}
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.protobuf.ProtoNumber
+import kotlinx.serialization.protobuf.ProtoBuf
+import kotlinx.serialization.encodeToByteArray
+import kotlinx.serialization.decodeFromByteArray
+{{- range .Enums}}
 
-// ── Client ─────────────────────────────────────────────────────────────
+// ── Enum: {{.Name}} ───────────────────────────────────────────────────
+
+@Serializable
+enum class {{.Name}} {
+{{- range .Values}}
+    {{.Name}},
+{{- end}}
+}
+{{- end}}
+{{- range .Messages}}
+
+// ── Message: {{.Name}} ────────────────────────────────────────────────
+
+@Serializable
+data class {{.Name}}(
+{{- range .Fields}}
+    @ProtoNumber({{.ProtoNumber}}) val {{.Name}}: {{.KotlinType}} = {{.DefaultValue}},
+{{- end}}
+) {
+    fun toByteArray(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    companion object {
+        fun parseFrom(bytes: ByteArray): {{.Name}} = ProtoBuf.decodeFromByteArray(bytes)
+    }
+}
+{{- end}}
+{{- range .Services}}
+{{- $svc := .}}
+
+// ── Client: {{.Name}} ─────────────────────────────────────────────────
 
 object {{.Name}} {
 {{- range .Methods}}
@@ -16,14 +49,14 @@ object {{.Name}} {
 
     fun {{.MethodName}}(request: {{.Input}}): Flow<{{.Output}}> {
         return Kalam.instance
-            .stream("{{$.ServicePrefix}}{{.Name}}", request.toByteArray())
+            .stream("{{$svc.Prefix}}{{.Name}}", request.toByteArray())
             .map { bytes -> {{.Output}}.parseFrom(bytes) }
     }
 {{- else}}
 
     suspend fun {{.MethodName}}(request: {{.Input}}): {{.Output}} {
         val bytes = Kalam.instance.call(
-            "{{$.ServicePrefix}}{{.Name}}",
+            "{{$svc.Prefix}}{{.Name}}",
             request.toByteArray(),
         )
         return {{.Output}}.parseFrom(bytes)
@@ -32,7 +65,7 @@ object {{.Name}} {
 {{- end}}
 }
 
-// ── Server ─────────────────────────────────────────────────────────────
+// ── Server: {{.Name}} ─────────────────────────────────────────────────
 
 interface {{.Name}}Handler {
 {{- range .Methods}}

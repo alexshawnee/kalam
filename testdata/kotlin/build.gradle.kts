@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm")
     id("com.google.protobuf") version "0.9.4"
+    id("com.kalam")
     application
 }
 
@@ -16,10 +17,9 @@ protobuf {
     }
 }
 
-sourceSets {
-    main {
-        kotlin.srcDir("generated")
-    }
+kalam {
+    proto.from(rootProject.file("testdata/user.proto"))
+    kotlin()
 }
 
 application {

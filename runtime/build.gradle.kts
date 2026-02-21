@@ -44,6 +44,5 @@ kotlin {
 publishing {
     publications.withType<MavenPublication> {
         groupId = "com.kalam"
-        artifactId = "runtime"
     }
 }

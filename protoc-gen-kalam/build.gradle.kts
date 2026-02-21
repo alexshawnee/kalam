@@ -67,6 +67,33 @@ tasks.register<Exec>("generateKotlin") {
     )
 }
 
+tasks.register<Exec>("generateSwift") {
+    description = "Run protoc with kalam + swift plugins"
+    dependsOn("goBuild")
+
+    val protoDir = rootProject.file("testdata")
+    val swiftOut = rootProject.file("testdata/swift/Sources/Generated")
+
+    inputs.file(protoDir.resolve("user.proto"))
+    inputs.file(goBinary)
+    outputs.dir(swiftOut)
+
+    doFirst {
+        swiftOut.deleteRecursively()
+        swiftOut.mkdirs()
+    }
+
+    environment("PATH", "${goBinary.get().asFile.parentFile.absolutePath}:${System.getenv("PATH")}")
+    commandLine(
+        "protoc",
+        "--swift_out=${swiftOut}",
+        "--kalam_out=${swiftOut}",
+        "--kalam_opt=lang=swift",
+        "--proto_path=${protoDir}",
+        "${protoDir}/user.proto"
+    )
+}
+
 tasks.register<Delete>("goClean") {
     description = "Remove the built Go binary"
     delete(goBinary)
