@@ -106,6 +106,14 @@ This makes each piece independently useful and testable.
 
 ## Open Questions
 
+### Swift: iOS 13 Compatibility
+- Current Swift template and runtime use `async/await`, `AsyncThrowingStream`, `Task`, `CheckedContinuation` — all require iOS 15+
+- Need to support iOS 13+
+- Options:
+  - **Callbacks**: `completion: @escaping (Result<T, Error>) -> Void` — works on iOS 13+
+  - **Combine**: `Future<T, Error>` / `AnyPublisher<T, Error>` — works on iOS 13+
+  - **Both**: callback API as default, async/await wrappers under `@available(iOS 15, *)`
+
 ### C++ Runtime
 - C++17 (callbacks) vs C++20 (coroutines)?
 - Standalone Asio vs libuv?

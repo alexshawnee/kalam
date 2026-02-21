@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'kalam.dart';
 import '{{.ProtoName}}.pb.dart';
 {{range .Services}}
+{{- $svc := .}}
 
 // ── Client ─────────────────────────────────────────────────────────────
 
@@ -14,14 +15,14 @@ class {{.Name}} {
 
   static Stream<{{.Output}}> {{.MethodName}}({{.Input}} request) {
     return Kalam.instance
-        .stream("{{$.ServicePrefix}}{{.Name}}", request.writeToBuffer())
+        .stream("{{$svc.Prefix}}{{.Name}}", request.writeToBuffer())
         .map((bytes) => {{.Output}}.fromBuffer(bytes));
   }
 {{- else}}
 
   static Future<{{.Output}}> {{.MethodName}}({{.Input}} request) async {
     final bytes = await Kalam.instance.call(
-      "{{$.ServicePrefix}}{{.Name}}",
+      "{{$svc.Prefix}}{{.Name}}",
       request.writeToBuffer(),
     );
     return {{.Output}}.fromBuffer(bytes);

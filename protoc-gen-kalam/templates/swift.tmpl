@@ -4,6 +4,7 @@
 import Foundation
 import SwiftProtobuf
 {{range .Services}}
+{{- $svc := .}}
 
 // ── Client ─────────────────────────────────────────────────────────────
 
@@ -12,7 +13,7 @@ enum {{.Name}} {
 {{- if .ServerStreaming}}
 
     static func {{.MethodName}}(_ request: {{.Input}}) throws -> AsyncThrowingStream<{{.Output}}, Error> {
-        let raw = try Kalam.shared.stream("{{$.ServicePrefix}}{{.Name}}", try request.serializedData())
+        let raw = try Kalam.shared.stream("{{$svc.Prefix}}{{.Name}}", try request.serializedData())
         return AsyncThrowingStream<{{.Output}}, Error> { continuation in
             Task {
                 do {
@@ -29,7 +30,7 @@ enum {{.Name}} {
 {{- else}}
 
     static func {{.MethodName}}(_ request: {{.Input}}) async throws -> {{.Output}} {
-        let data = try await Kalam.shared.call("{{$.ServicePrefix}}{{.Name}}", try request.serializedData())
+        let data = try await Kalam.shared.call("{{$svc.Prefix}}{{.Name}}", try request.serializedData())
         return try {{.Output}}(serializedBytes: data)
     }
 {{- end}}
