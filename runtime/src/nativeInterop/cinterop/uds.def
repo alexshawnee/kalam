@@ -1,0 +1,64 @@
+package = kalam.cinterop.uds
+
+---
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <string.h>
+
+static int uds_init(void) {
+    return 0;
+}
+
+static int uds_connect(const char* path) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static int uds_bind(const char* path) {
+    unlink(path);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+
+    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+    if (listen(fd, 5) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static int uds_accept(int server_fd) {
+    return accept(server_fd, NULL, NULL);
+}
+
+static int uds_close(int fd) {
+    return close(fd);
+}
+
+static long uds_read(int fd, void* buf, unsigned long len) {
+    return read(fd, buf, len);
+}
+
+static long uds_write(int fd, const void* buf, unsigned long len) {
+    return write(fd, buf, len);
+}

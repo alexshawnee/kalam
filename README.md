@@ -41,7 +41,7 @@ core (server)  <--UDS-->  unity-app (C#, client)
 - `frame_type 0` — unary request/response
 - `frame_type 1` — stream chunk
 - `frame_type 2` — stream end
-- `request_id = 0` for blocking calls, `> 0` for future duplex support
+- `frame_type 3` — error
 
 All multi-byte integers are big-endian. Payload is protobuf-encoded.
 
@@ -52,65 +52,21 @@ All multi-byte integers are big-endian. Payload is protobuf-encoded.
 Names match the `.proto` definition exactly — no suffixes, no wrappers:
 
 ```dart
-// generated: user_service.dart
-import 'transport.dart';
-import 'user.pb.dart';
+final response = await UserService.getUser(GetUserRequest(id: 42));
+```
 
-class UserService {
-  static Future<GetUserResponse> getUser(GetUserRequest request) async {
-    final bytes = await Transport.instance.call(
-      "UserService/GetUser",
-      request.writeToBuffer(),
-    );
-    return GetUserResponse.fromBuffer(bytes);
+### Server (example: Dart)
+
+Implement a typed handler interface, routing is generated:
+
+```dart
+class MyUserService extends UserServiceHandler {
+  @override
+  Future<GetUserResponse> getUser(GetUserRequest request) async {
+    return GetUserResponse(name: 'User ${request.id}');
   }
 }
 ```
-
-Usage:
-```dart
-final response = await UserService.getUser(request);
-```
-
-### Server (example: Kotlin)
-
-Handler interface — you implement this:
-
-```kotlin
-interface UserServiceHandler {
-    suspend fun getUser(request: GetUserRequest): GetUserResponse
-}
-```
-
-Router — generated, wires method names to your handler:
-
-```kotlin
-class UserServiceRouter(private val handler: UserServiceHandler) : ServiceRouter {
-    override suspend fun route(method: String, payload: ByteArray): ByteArray {
-        return when (method) {
-            "GetUser" -> {
-                val request = GetUserRequest.parseFrom(payload)
-                handler.getUser(request).toByteArray()
-            }
-            else -> throw UnknownMethodException(method)
-        }
-    }
-}
-```
-
-### Transport (per language)
-
-A singleton providing both client and server capabilities:
-
-```dart
-// Client side
-Transport.instance.useSockets("/tmp/myapp.sock");
-
-// Server side (same singleton, different role)
-Transport.instance.serve("/tmp/myapp.sock", (methodName, payload) => ...);
-```
-
-The socket path can be passed as a `protoc` option (hardcoded at generation time) or configured at runtime.
 
 ## Async Primitives by Platform
 
@@ -121,47 +77,63 @@ The socket path can be passed as a `protoc` option (hardcoded at generation time
 | Swift      | `async` / `await`  | `AsyncSequence`          |
 | TypeScript | `Promise<T>`       | `AsyncGenerator<T>`      |
 | C#         | `Task<T>`          | `IAsyncEnumerable<T>`    |
+| C++        | `co_await` / TBD   | TBD                      |
 
 ## Project Structure
 
 ```
-/plugin
-  main.go              <- protoc plugin: protogen + template execution
+kalam/
+  settings.gradle.kts              # root build
+  build.gradle.kts
 
-/templates
-  dart.tmpl
-  kotlin.tmpl
-  swift.tmpl
-  typescript.tmpl
-  csharp.tmpl
+  protoc/                           # Go protoc plugin
+    main.go
+    go.mod / go.sum
+    templates/
+      dart.tmpl
+    runtime/
+      kalam.dart
+    build.gradle.kts                # goBuild, generate tasks
 
-/runtime
-  transport.dart
-  transport.kt
-  transport.swift
-  transport.ts
-  transport.cs
+  runtime/                          # KMP library (Kotlin client/server runtime)
+    build.gradle.kts                # kotlin-multiplatform + maven-publish
+    src/
+      commonMain/kotlin/com/kalam/  # Frame, FrameReader, Kalam, KalamServer
+      jvmMain/kotlin/com/kalam/    # java.nio UDS
+      appleMain/kotlin/com/kalam/  # POSIX UDS via cinterop
+      mingwMain/kotlin/com/kalam/  # Winsock UDS (TODO)
+
+  testdata/
+    user.proto
+    dart/                           # Dart integration test
+    kotlin/                         # Kotlin integration test
 ```
-
-One template per language generates both client stubs and server handler/router. The `side` parameter controls which part is emitted. Runtime files are copied alongside generated code.
 
 ## Usage
 
 ```bash
-protoc --kalam_out=. \
-       --kalam_opt=socket=/tmp/myapp.sock,side=client,lang=dart \
-       user.proto
+# Build the protoc plugin
+./gradlew :protoc:goBuild
+
+# Generate code for Dart integration tests
+./gradlew :protoc:generate
+
+# Publish KMP runtime to local Maven
+./gradlew :runtime:publishToMavenLocal
+
+# Run Dart integration test
+cd testdata/dart && dart run integration_test.dart
 ```
-
-## Modes
-
-- **production** — IPC only, `Transport.init()` called automatically on import
-- **debug** — IPC + exposes a debug RPC server for E2E testing (same binary as production)
 
 ## Roadmap
 
-- [ ] Dart client + Kotlin server PoC
-- [ ] Remaining client languages (Swift, TypeScript, C#, Kotlin)
-- [ ] Server support for all languages
-- [ ] Stream support (frame_type 1, 2)
-- [ ] React Native transport plugin (TCP fallback)
+- [x] Wire protocol (framing, multiplexing, streaming, errors)
+- [x] Dart client + server runtime
+- [x] Dart codegen template
+- [x] Kotlin Multiplatform runtime library
+- [ ] Kotlin codegen template
+- [ ] Bidirectional streaming
+- [ ] Remaining client languages (Swift, TypeScript, C#)
+- [ ] C++ runtime — decide on minimum standard (C++17 vs C++20 coroutines) and async I/O library (standalone Asio vs libuv); `std::future` is too limited (no chaining, blocks on `.get()`), so the runtime needs either Asio coroutines or libuv event loop under the hood
+- [ ] Gradle plugin for codegen
+- [ ] 💭 ZeroMQ as optional transport — PUB/SUB for fan-out scenarios (one stream, many subscribers across platforms); current UDS protocol is point-to-point only

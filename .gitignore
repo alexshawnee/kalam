@@ -1,5 +1,11 @@
 build/
+.gradle/
 protoc-gen-kalam
 **/generated/
 .dart_tool/
 pubspec.lock
+.idea/
+*.iml
+.kotlin/
+.konan/
+local.properties
